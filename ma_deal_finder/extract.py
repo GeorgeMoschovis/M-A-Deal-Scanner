@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import anthropic
 
-from scrapers import normalise
+from .scrapers import normalise
 
 MODEL = "claude-haiku-4-5-20251001"
 PRICE_PER_INPUT_TOKEN = 1.00 / 1_000_000

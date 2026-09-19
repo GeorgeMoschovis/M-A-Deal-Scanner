@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-import extract
+from ma_deal_finder import extract
 from helpers import FakeClient, deal_json, make_article
 
 WINDOW = date(2026, 9, 12)

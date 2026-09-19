@@ -7,7 +7,7 @@ import docx
 import pytest
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-import docx_export
+from ma_deal_finder import docx_export
 from helpers import make_deal
 
 

@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 
 import anthropic
 
-import extract
-import scrapers
+from ma_deal_finder import extract
+from ma_deal_finder import scrapers
 
 NOW = datetime(2026, 9, 18, tzinfo=timezone.utc)
 

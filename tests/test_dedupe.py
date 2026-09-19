@@ -1,6 +1,6 @@
 """The same deal reported by several articles becomes one entry that lists every source."""
 
-import extract
+from ma_deal_finder import extract
 from helpers import FakeClient, make_deal
 
 JV_1 = "https://www.capital.gr/ion-jv"

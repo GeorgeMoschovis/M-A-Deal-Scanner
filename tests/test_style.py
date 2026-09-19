@@ -2,7 +2,7 @@
 
 import pytest
 
-import extract
+from ma_deal_finder import extract
 from helpers import deal_json, make_article
 
 

@@ -8,9 +8,9 @@ import anthropic
 import streamlit as st
 from dotenv import load_dotenv
 
-import scrapers
-from docx_export import build_docx
-from extract import (ESTIMATED_COST_PER_ARTICLE, SECTORS, Usage, extract_deal, group_deals,
+from ma_deal_finder import scrapers
+from ma_deal_finder.docx_export import build_docx
+from ma_deal_finder.extract import (ESTIMATED_COST_PER_ARTICLE, SECTORS, Usage, extract_deal, group_deals,
                      is_candidate, merge_duplicates, merge_with_claude, source_links)
 
 ALL_SECTORS = "All sectors"

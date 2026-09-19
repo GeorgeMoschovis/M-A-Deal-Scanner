@@ -9,7 +9,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
-from extract import group_deals, source_links
+from .extract import group_deals, source_links
 
 FONT = "Calibri"
 SIZE_PT = 10

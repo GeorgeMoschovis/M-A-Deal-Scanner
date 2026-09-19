@@ -2,8 +2,8 @@
 
 import pytest
 
-import extract
-import scrapers
+from ma_deal_finder import extract
+from ma_deal_finder import scrapers
 
 
 def article(title, text=""):
