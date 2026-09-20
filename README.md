@@ -1,6 +1,6 @@
 # M&A Deal Finder
 
-A local Streamlit app that drafts a weekly M&A deal digest. **Problem:** writing the sheet means reading dozens of articles across many sites (for Greece, a dozen Greek-language sites with no single feed), picking the real transactions and rewriting each in one fixed house style. **Method:** the app scrapes Greek business sites, SEC EDGAR 8-Ks and newswire feeds, drops unrelated articles with a keyword filter, has Claude Haiku 4.5 judge relevance and write each deal in house style, then enforces the number, dash and naming rules in code. **Result:** a digest of deal cards grouped by industry, each ending in source links, plus a Word (.docx) export in Calibri 10. A default Greece run fetches c. 80 articles, sends c. 40 to Claude and costs an estimated \$0.20–0.35. Figures come only from the article text, so derived multiples still need checking against the source.
+A local Streamlit app that drafts a weekly M&A deal digest. **Problem:** writing the sheet means reading dozens of articles across many sites (for Greece, a dozen Greek-language sites with no single feed), picking the real transactions and rewriting each in one fixed house style. **Method:** the app scrapes Greek business sites, SEC EDGAR 8-Ks and newswire feeds, drops unrelated articles with a keyword filter, has Claude Haiku 4.5 or DeepSeek V4.1 Flash (your choice) judge relevance and write each deal in house style, then enforces the number, dash and naming rules in code. **Result:** a digest of deal cards grouped by industry, each ending in source links, plus a Word (.docx) export in Calibri 10. A default Greece run fetches c. 80 articles, sends c. 40 to the model and costs an estimated \$0.20–0.35. Figures come only from the article text, so derived multiples still need checking against the source.
 
 ![M&A Deal Finder: sidebar filters and a generated digest for the United Kingdom](docs/digest.png)
 
@@ -14,10 +14,11 @@ A local Streamlit app that drafts a weekly M&A deal digest. **Problem:** writing
    python -m pip install -r requirements.txt
    ```
 
-2. Copy `.env.example` to `.env` (the file is git-ignored) and add your key, or paste the key into the sidebar instead:
+2. Copy `.env.example` to `.env` (the file is git-ignored) and add the key for the model you will use, or paste it into the sidebar instead:
 
    ```
    ANTHROPIC_API_KEY=sk-ant-...
+   DEEPSEEK_API_KEY=sk-...
    ```
 
 3. Run the app. Using `python -m` keeps install and run on the same Python:
@@ -52,7 +53,7 @@ Per-site scrapers read a listing page, keep links from the look-back window (def
 ### Filtering
 
 1. A keyword filter (accent-insensitive Greek stems plus English terms) drops unrelated articles before any API call.
-2. Claude (`claude-haiku-4-5-20251001`) judges relevance. "Only M&As" accepts acquisitions, mergers, stake purchases, tender offers and squeeze-outs; "Extensive" adds IPOs, capital raises, rumours and strategic reviews.
+2. The selected model, Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) or DeepSeek V4.1 Flash (`deepseek-flash`), judges relevance (below, "Claude" means whichever you chose). "Only M&As" accepts acquisitions, mergers, stake purchases, tender offers and squeeze-outs; "Extensive" adds IPOs, capital raises, rumours and strategic reviews.
 3. Claude also labels sector and region for the filters, and returns the date of the deal's latest milestone. Deals whose latest milestone predates the look-back window are left out; unclear dates are kept.
 4. Duplicates across articles merge into one entry listing every source: matching names directly, other pairs via a short Claude check. If unsure, both stay.
 
@@ -62,7 +63,7 @@ The system prompt in `ma_deal_finder/extract.py` encodes the house style. Claude
 
 ### Cost and API key
 
-Each article sent to Claude is one API call; the sidebar caps the number and the app reports actual usage. A United Kingdom run of 24 articles used 73,120 input and 7,407 output tokens, about \$0.11. The key comes from `.env` or the sidebar and is never logged or written by the app.
+Each article sent to Claude is one API call; the sidebar caps the number and the app reports actual usage. A United Kingdom run of 24 articles used 73,120 input and 7,407 output tokens, about \$0.11. DeepSeek costs about 4x less (peak prices) and is called through its Anthropic-compatible endpoint with thinking turned off; its servers receive the article text. Each model's key comes from `.env` or the sidebar and is never logged or written by the app.
 
 ### Known limits
 
