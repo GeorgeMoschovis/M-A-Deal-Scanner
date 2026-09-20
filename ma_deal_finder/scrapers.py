@@ -406,7 +406,7 @@ def collect(src, since, max_articles, sec_contact=""):
         if src.kind == "rss":
             return scrape_feed(src, since, max_articles)
         return scrape_edgar(since, max_articles, sec_contact)
-    except (requests.RequestException, KeyError, ValueError) as exc:
+    except Exception as exc:  # one broken source must not abort the whole run
         return [], f"failed ({type(exc).__name__})"
 
 
