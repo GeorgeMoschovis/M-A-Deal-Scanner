@@ -45,15 +45,18 @@ class FakeClient:
     by `same_deal(text_a, text_b)`.
     """
 
-    def __init__(self, payloads=None, same_deal=None, fail_dedupe=False):
+    def __init__(self, payloads=None, same_deal=None, fail_dedupe=False, fail_extraction=False):
         self.messages = self
         self.payloads = payloads or {}
         self.same_deal = same_deal or (lambda a, b: False)
         self.fail_dedupe = fail_dedupe
+        self.fail_extraction = fail_extraction
+        self.last_extras = {}
         self.extraction_prompts = []
         self.dedupe_calls = 0
 
-    def create(self, *, model, max_tokens, system, messages):
+    def create(self, *, model, max_tokens, system, messages, **extras):
+        self.last_extras = extras
         user = messages[0]["content"]
         if system == extract.DEDUPE_PROMPT:
             self.dedupe_calls += 1
@@ -62,6 +65,8 @@ class FakeClient:
             first, second = user.split("\n\nB:\n")
             payload = {"same_deal": self.same_deal(first, second)}
         else:
+            if self.fail_extraction:
+                raise anthropic.APIError("Error code: 400 - model not found", request=None, body=None)
             self.extraction_prompts.append(user)
             payload = next(p for key, p in self.payloads.items()
                            if f"URL: https://example.com/{key}\n" in user)

@@ -124,7 +124,7 @@ def pick_candidates(by_source, cfg):
 
 
 def analyse(client, candidates, cfg, wire_names, progress):
-    usage, deals, headers, failed, stale = Usage(provider=cfg["provider"]), [], set(), 0, 0
+    usage, deals, headers, failed, stale = Usage(provider=cfg["provider"]), [], set(), [], 0
     for i, article in enumerate(candidates, 1):
         progress.progress(i / len(candidates), text=f"Reading article {i} of {len(candidates)} ({article.source})")
         try:
@@ -132,8 +132,8 @@ def analyse(client, candidates, cfg, wire_names, progress):
                                         cfg["window_start"])
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
             raise
-        except anthropic.APIError:
-            failed += 1
+        except anthropic.APIError as exc:
+            failed.append(f"{type(exc).__name__}: {exc}")
             continue
         stale += is_old
         if not deal:
@@ -159,7 +159,7 @@ def run(cfg, sources):
         status.write(f"{total} candidate article(s) after the keyword filter; "
                      f"sending {len(candidates)} to {provider.label}")
         if not candidates:
-            deals, usage, failed, stale = [], Usage(provider=provider), 0, 0
+            deals, usage, failed, stale = [], Usage(provider=provider), [], 0
         else:
             progress = st.progress(0.0)
             try:
@@ -262,7 +262,9 @@ if result:
         st.caption(f"{result['stale']} older deal(s) left out because they were announced or "
                    "completed before the look-back window.")
     if result["failed"]:
-        st.warning(f"{result['failed']} article(s) could not be processed because of API errors.")
+        first_error = result["failed"][0][:200].replace("`", "'")
+        st.warning(f"{len(result['failed'])} article(s) could not be processed because of API errors. "
+                   f"First error: `{first_error}`")
     if result["capped"]:
         st.info(f"{result['capped']} further candidate article(s) were skipped by the "
                 "'Max articles sent to the model' limit.")
