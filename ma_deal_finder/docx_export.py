@@ -1,5 +1,6 @@
 """Word export: Calibri 10, justified, bold headlines, bold all-caps industry headers, italic footnotes."""
 
+from datetime import datetime, timezone
 from io import BytesIO
 
 from docx import Document
@@ -31,6 +32,11 @@ def _new_document():
     normal.font.size = Pt(SIZE_PT)
     _set_fonts(normal.element.get_or_add_rPr().get_or_add_rFonts())
     normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    props = doc.core_properties
+    props.title = "M&A digest"
+    props.author = props.last_modified_by = "M&A Deal Finder"
+    props.comments = ""
+    props.created = props.modified = datetime.now(timezone.utc).replace(tzinfo=None)
     return doc
 
 

@@ -94,6 +94,14 @@ def test_rumours_come_last_and_carry_no_financial_block(document):
     assert not any(":" in t and "€" in t for t in texts[start:])
 
 
+def test_file_properties_are_set_instead_of_python_docx_defaults(document):
+    props = document.core_properties
+    assert props.title == "M&A digest"
+    assert props.author == props.last_modified_by == "M&A Deal Finder"
+    assert props.comments == ""
+    assert props.created.year >= 2026
+
+
 def test_empty_digest_still_produces_a_readable_file():
     empty = docx.Document(io.BytesIO(docx_export.build_docx([])))
     assert [p.text for p in empty.paragraphs] == ["No matching deals found."]
