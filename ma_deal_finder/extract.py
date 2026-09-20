@@ -9,12 +9,9 @@ from urllib.parse import urlparse
 
 import anthropic
 
+from .providers import CLAUDE, Provider
 from .scrapers import normalise
 
-MODEL = "claude-haiku-4-5-20251001"
-PRICE_PER_INPUT_TOKEN = 1.00 / 1_000_000
-PRICE_PER_OUTPUT_TOKEN = 5.00 / 1_000_000
-ESTIMATED_COST_PER_ARTICLE = 0.008
 MAX_ARTICLE_CHARS = 14_000
 MAX_OUTPUT_TOKENS = 3_000
 
@@ -121,11 +118,12 @@ class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     calls: int = 0
+    provider: Provider = CLAUDE
 
     @property
     def cost(self):
-        return (self.input_tokens * PRICE_PER_INPUT_TOKEN
-                + self.output_tokens * PRICE_PER_OUTPUT_TOKEN)
+        return (self.input_tokens * self.provider.price_in
+                + self.output_tokens * self.provider.price_out)
 
 
 SMALL_WORDS = {"a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "at", "by", "in",
@@ -256,9 +254,10 @@ def parse_json(text):
 
 
 def _ask(client, system, user, max_tokens, usage):
-    """One Claude call; returns (parsed JSON or None, finished normally)."""
-    message = client.messages.create(model=MODEL, max_tokens=max_tokens, system=system,
-                                     messages=[{"role": "user", "content": user}])
+    """One model call; returns (parsed JSON or None, finished normally)."""
+    message = client.messages.create(model=usage.provider.model, max_tokens=max_tokens, system=system,
+                                     messages=[{"role": "user", "content": user}],
+                                     **usage.provider.request_extras)
     usage.calls += 1
     usage.input_tokens += message.usage.input_tokens
     usage.output_tokens += message.usage.output_tokens

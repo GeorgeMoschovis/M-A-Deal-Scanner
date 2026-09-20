@@ -6,11 +6,12 @@ from pathlib import Path
 
 import anthropic
 import streamlit as st
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from ma_deal_finder import scrapers
 from ma_deal_finder.docx_export import build_docx
-from ma_deal_finder.extract import (ESTIMATED_COST_PER_ARTICLE, SECTORS, Usage, extract_deal, group_deals,
+from ma_deal_finder.providers import PROVIDERS, make_client
+from ma_deal_finder.extract import (SECTORS, Usage, extract_deal, group_deals,
                      is_candidate, merge_duplicates, merge_with_claude, source_links)
 
 ALL_SECTORS = "All sectors"
@@ -123,7 +124,7 @@ def pick_candidates(by_source, cfg):
 
 
 def analyse(client, candidates, cfg, wire_names, progress):
-    usage, deals, headers, failed, stale = Usage(), [], set(), 0, 0
+    usage, deals, headers, failed, stale = Usage(provider=cfg["provider"]), [], set(), 0, 0
     for i, article in enumerate(candidates, 1):
         progress.progress(i / len(candidates), text=f"Reading article {i} of {len(candidates)} ({article.source})")
         try:
@@ -149,21 +150,23 @@ def analyse(client, candidates, cfg, wire_names, progress):
 
 
 def run(cfg, sources):
-    client = anthropic.Anthropic(api_key=st.session_state["api_key"].strip(), timeout=90.0)
+    provider = cfg["provider"]
+    client = make_client(provider, st.session_state[provider.key_state].strip())
     wire_names = {s.name for s in sources if s.kind == "rss"}
     with st.status("Generating digest", expanded=True) as status:
         by_source, notes = gather(sources, cfg, status)
         candidates, total = pick_candidates(by_source, cfg)
-        status.write(f"{total} candidate article(s) after the keyword filter; sending {len(candidates)} to Claude")
+        status.write(f"{total} candidate article(s) after the keyword filter; "
+                     f"sending {len(candidates)} to {provider.label}")
         if not candidates:
-            deals, usage, failed, stale = [], Usage(), 0, 0
+            deals, usage, failed, stale = [], Usage(provider=provider), 0, 0
         else:
             progress = st.progress(0.0)
             try:
                 deals, usage, failed, stale = analyse(client, candidates, cfg, wire_names, progress)
             except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
                 status.update(label="API key rejected", state="error")
-                st.error("Anthropic rejected the API key. Check it in the sidebar and try again.")
+                st.error(f"{provider.company} rejected the API key. Check it in the sidebar and try again.")
                 st.stop()
             progress.empty()
         status.update(label="Digest ready", state="complete", expanded=False)
@@ -189,8 +192,11 @@ def on_sector():
     state["sector_prev"] = state["sector"]
 
 
-load_dotenv(Path(__file__).with_name(".env"))
-st.session_state.setdefault("api_key", os.getenv("ANTHROPIC_API_KEY", ""))
+env_file = dotenv_values(Path(__file__).with_name(".env"))
+for option in PROVIDERS.values():
+    # re-assigned every run so a key survives while its field is hidden; typed key > .env > environment
+    st.session_state[option.key_state] = (st.session_state.get(option.key_state)
+                                          or env_file.get(option.env_var) or os.getenv(option.env_var, ""))
 st.session_state.setdefault("geography", ["Greece"])
 st.session_state.setdefault("geography_prev", ["Greece"])
 st.session_state.setdefault("sector", [ALL_SECTORS])
@@ -198,8 +204,11 @@ st.session_state.setdefault("sector_prev", [ALL_SECTORS])
 
 with st.sidebar:
     st.title("ma-deal-finder")
-    st.text_input("Anthropic API key", type="password", key="api_key",
-                  help="Prefilled from ANTHROPIC_API_KEY in .env if set. You can also paste it here; "
+    provider = PROVIDERS[st.radio("AI model", list(PROVIDERS), help=(
+        "Both read the same articles with the same instructions. DeepSeek is cheaper; its servers "
+        "receive the article text."))]
+    st.text_input(f"{provider.company} API key", type="password", key=provider.key_state,
+                  help=f"Prefilled from {provider.env_var} in .env if set. You can also paste it here; "
                        "it is then held in this session's memory only.")
     geographies = st.pills("Geography", scrapers.GEOGRAPHIES, selection_mode="multi",
                            key="geography", on_change=on_geography) or []
@@ -216,21 +225,22 @@ with st.sidebar:
         sources = [available[k] for k in available if k in chosen_keys]
         days = st.slider("Look back (days)", 1, 14, 7)
         per_source = st.slider("Articles fetched per source", 3, 25, 10)
-        max_calls = st.slider("Max articles sent to Claude", 10, 150, 40,
-                              help="Cost guard: each article sent to Claude is one API call.")
+        max_calls = st.slider("Max articles sent to the model", 10, 150, 40,
+                              help="Cost guard: each article sent to the model is one API call.")
         sec_contact = ""
         if any(s.kind == "edgar" for s in sources):
             sec_contact = st.text_input("SEC contact email", help=(
                 "SEC asks automated clients to identify themselves in the User-Agent. "
                 "Used only for requests to sec.gov."))
-    st.caption(f"Estimated Claude cost ≈ \\${max_calls * ESTIMATED_COST_PER_ARTICLE:.2f} if all {max_calls} "
-               "articles are sent (about \\$0.008 each; the actual figure is shown after each run).")
+    per_article = provider.estimated_cost_per_article
+    st.caption(f"Estimated cost ≈ \\${max_calls * per_article:.2f} if all {max_calls} articles are sent "
+               f"(about \\${per_article:.3f} each; the actual figure is shown after each run).")
     generate = st.button("Generate Digest", type="primary", use_container_width=True)
     st.html(WIDEN_SIDEBAR_JS, unsafe_allow_javascript=True)
 
 if generate:
-    if not st.session_state.get("api_key", "").strip():
-        st.error("Enter your Anthropic API key in the sidebar.")
+    if not st.session_state.get(provider.key_state, "").strip():
+        st.error(f"Enter your {provider.company} API key in the sidebar.")
     elif not sources:
         st.error("Select at least one source.")
     else:
@@ -238,7 +248,7 @@ if generate:
                "sec_contact": sec_contact, "extensive": search_type == EXTENSIVE,
                "all_sectors": ALL_SECTORS in sector_choice or not sector_choice,
                "sectors": set(sector_choice), "geographies": set(geographies),
-               "window_start": scrapers.since_cutoff(days).date()}
+               "window_start": scrapers.since_cutoff(days).date(), "provider": provider}
         run(cfg, sources)
 
 result = st.session_state.get("result")
@@ -246,7 +256,7 @@ if result:
     usage = result["usage"]
     st.download_button("Download as Word (.docx)", result["docx"],
                        file_name=f"ma-digest-{date.today().isoformat()}.docx", mime=DOCX_MIME)
-    st.caption(f"{len(result['deals'])} item(s) · Claude usage: {usage.calls} calls, "
+    st.caption(f"{len(result['deals'])} item(s) · {usage.provider.company} usage: {usage.calls} calls, "
                f"{usage.input_tokens:,} input / {usage.output_tokens:,} output tokens ≈ \\${usage.cost:.3f}")
     if result["stale"]:
         st.caption(f"{result['stale']} older deal(s) left out because they were announced or "
@@ -255,7 +265,7 @@ if result:
         st.warning(f"{result['failed']} article(s) could not be processed because of API errors.")
     if result["capped"]:
         st.info(f"{result['capped']} further candidate article(s) were skipped by the "
-                "'Max articles sent to Claude' limit.")
+                "'Max articles sent to the model' limit.")
     if result["deals"]:
         render_digest(result["deals"])
     else:
