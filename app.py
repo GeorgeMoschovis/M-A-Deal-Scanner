@@ -107,10 +107,12 @@ def render_digest(deals):
 
 def gather(sources, cfg, status):
     since = scrapers.since_cutoff(cfg["days"])
+    status.write(f"Scraping {len(sources)} source(s)")
+    results = scrapers.collect_all(sources, since, cfg["per_source"], cfg["sec_contact"],
+                                   on_done=lambda src, articles, note: status.write(
+                                       f"Scraped {src.name}: {len(articles)} article(s)"))
     by_source, notes = {}, {}
-    for src in sources:
-        status.write(f"Scraping {src.name}")
-        articles, note = scrapers.collect(src, since, cfg["per_source"], cfg["sec_contact"])
+    for src, (articles, note) in zip(sources, results):
         by_source[src.name] = articles
         notes[src.name] = (bool(articles), f"{len(articles)} article(s)" + (f" – {note}" if note else ""))
     return by_source, notes

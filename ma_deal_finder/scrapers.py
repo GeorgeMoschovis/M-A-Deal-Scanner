@@ -4,7 +4,7 @@ import html
 import re
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -24,6 +24,7 @@ USER_AGENT = "Mozilla/5.0 (compatible; ma-deal-finder/0.1; local research tool)"
 ROBOTS_TOKEN = "ma-deal-finder"
 TIMEOUT = 20
 FETCH_WORKERS = 4
+SOURCE_WORKERS = 4  # sources are separate sites, so each site still sees at most FETCH_WORKERS requests
 POLITE_DELAY = 0.3
 
 
@@ -408,6 +409,22 @@ def collect(src, since, max_articles, sec_contact=""):
         return scrape_edgar(since, max_articles, sec_contact)
     except Exception as exc:  # one broken source must not abort the whole run
         return [], f"failed ({type(exc).__name__})"
+
+
+def collect_all(sources, since, max_articles, sec_contact="", on_done=None):
+    """Scrapes SOURCE_WORKERS sources at a time; returns [(articles, note)] in the order of `sources`.
+
+    on_done(src, articles, note) runs in the calling thread as each source finishes.
+    """
+    results = {}
+    with ThreadPoolExecutor(SOURCE_WORKERS) as pool:
+        futures = {pool.submit(collect, src, since, max_articles, sec_contact): src for src in sources}
+        for future in as_completed(futures):
+            src = futures[future]
+            results[src.key] = future.result()
+            if on_done:
+                on_done(src, *results[src.key])
+    return [results[src.key] for src in sources]
 
 
 def normalise(text):
