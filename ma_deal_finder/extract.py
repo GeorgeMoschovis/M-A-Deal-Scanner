@@ -10,10 +10,13 @@ from urllib.parse import urlparse
 import anthropic
 
 from .providers import CLAUDE, Provider
-from .scrapers import normalise
+from .scrapers import GEOGRAPHIES, normalise
 
 MAX_ARTICLE_CHARS = 14_000
 MAX_OUTPUT_TOKENS = 3_000
+
+# why extract_deal left an item out
+STALE, OUTSIDE_GEOGRAPHIES = "stale", "outside_geographies"
 
 SECTORS = ["Industrials", "Financials", "Energy", "Real Estate", "Technology",
            "Consumer/Retail", "Healthcare", "Shipping", "Telecom"]
@@ -28,6 +31,9 @@ If the article is not relevant, reply {"relevant": false}.
 
 DATES (the user message gives PUBLISHED and WINDOW_START)
 Set latest_event_date (YYYY-MM-DD) to the date of the most recent milestone of the transaction that the article reports as news: announcement, signing, approval or completion. If the article only mentions a transaction that happened earlier as background (for example inside a results report), use the date of that earlier transaction. Resolve relative dates ("yesterday", "last month") from PUBLISHED. Use null if no date is stated or you are not sure; never guess. If latest_event_date is before WINDOW_START, reply {"relevant": false, "stale": true} instead of writing the item up.
+
+GEOGRAPHY (the user message gives GEOGRAPHIES, the regions the reader covers)
+Set geographies to every region the item is linked to, from: "Greece", "United States", "United Kingdom", "Rest of Europe" (any other European country), "Other". A region is linked if the buyer, target, seller or issuer, a parent or subsidiary directly involved, or a co-investor or lender is based there, or if the business, assets or operations being bought, sold or financed are there. Even a slight link counts: a foreign buyer acquiring a company that has a Greek subsidiary is linked to Greece. The country of the news outlet that published the article does not count. For this field only, you may use widely known facts about where well-known companies are based. If the item is linked to none of the GEOGRAPHIES, reply {"relevant": false, "outside_geographies": true} instead of writing it up.
 
 Use only facts stated in the article. Never use outside knowledge and never invent a figure. Write in English and give Greek companies their usual English names in Latin script.
 
@@ -71,7 +77,7 @@ OUTPUT SCHEMA
   "relevant": true,
   "item_type": "deal" | "rumour" | "ipo" | "capital_raise" | "strategic_alternatives",
   "sector": "Industrials" | "Financials" | "Energy" | "Real Estate" | "Technology" | "Consumer/Retail" | "Healthcare" | "Shipping" | "Telecom" | "Other",
-  "region": where the target or issuer is based: "Greece" | "United States" | "United Kingdom" | "Rest of Europe" | "Other",
+  "geographies": every linked region (see GEOGRAPHY), e.g. ["Greece", "United Kingdom"],
   "latest_event_date": "YYYY-MM-DD" or null,
   "industry_header": "ALL CAPS INDUSTRY",
   "buyer_name": "short buyer name, empty string if none",
@@ -211,6 +217,16 @@ def is_stale(deal, window_start):
     return bool(deal["event_date"]) and date.fromisoformat(deal["event_date"]) < window_start
 
 
+def is_outside(deal, geographies):
+    """True only when the model named the deal's regions and none of them is selected."""
+    return bool(geographies) and bool(deal["geographies"]) and not set(deal["geographies"]) & set(geographies)
+
+
+def _geographies(value):
+    known = GEOGRAPHIES + ["Other"]
+    return [g for g in known if g in value] if isinstance(value, list) else []
+
+
 def polish_deal(data, article, extensive):
     item_type = data.get("item_type") if data.get("item_type") in OTHER_ITEM_TYPES else "deal"
     if item_type != "deal" and not extensive:
@@ -226,7 +242,7 @@ def polish_deal(data, article, extensive):
         "item_type": item_type,
         "event_date": _iso_date(data.get("latest_event_date")),
         "sector": data.get("sector") if data.get("sector") in SECTORS else "Other",
-        "region": data.get("region") or "Other",
+        "geographies": _geographies(data.get("geographies")),
         "industry_header": polish_text(data.get("industry_header") or "OTHER").rstrip(".").upper(),
         "buyer_name": polish_text(data.get("buyer_name")).rstrip("."),
         "target_name": polish_text(data.get("target_name")).rstrip("."),
@@ -265,9 +281,14 @@ def _ask(client, system, user, max_tokens, usage):
     return parse_json(text), message.stop_reason != "max_tokens"
 
 
-def extract_deal(client, article, extensive, used_headers, usage, window_start):
-    """Returns (deal or None, stale). stale is True when the deal predates the look-back window."""
+def extract_deal(client, article, extensive, used_headers, usage, window_start, geographies=()):
+    """Returns (deal or None, why it was left out: STALE, OUTSIDE_GEOGRAPHIES or "").
+
+    With no geographies given, items are not filtered by region.
+    """
     lines = [f"MODE: {'EXTENSIVE' if extensive else 'ONLY_MA'}"]
+    if geographies:
+        lines.append(f"GEOGRAPHIES: {json.dumps(sorted(geographies))}")
     if used_headers:
         lines.append(f"HEADERS ALREADY USED: {json.dumps(sorted(used_headers), ensure_ascii=False)}")
     published = article.published.date().isoformat() if article.published else "unknown"
@@ -276,15 +297,19 @@ def extract_deal(client, article, extensive, used_headers, usage, window_start):
               "", "ARTICLE:", article.text[:MAX_ARTICLE_CHARS]]
     data, finished = _ask(client, SYSTEM_PROMPT, "\n".join(lines), MAX_OUTPUT_TOKENS, usage)
     if not finished or not data:
-        return None, False
+        return None, ""
     if data.get("stale"):
-        return None, True
+        return None, STALE
+    if geographies and data.get("outside_geographies"):
+        return None, OUTSIDE_GEOGRAPHIES
     if not data.get("relevant"):
-        return None, False
+        return None, ""
     deal = polish_deal(data, article, extensive)
     if deal and is_stale(deal, window_start):
-        return None, True
-    return deal, False
+        return None, STALE
+    if deal and is_outside(deal, geographies):
+        return None, OUTSIDE_GEOGRAPHIES
+    return deal, ""
 
 
 def _key(name):

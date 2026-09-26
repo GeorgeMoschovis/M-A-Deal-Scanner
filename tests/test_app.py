@@ -1,5 +1,6 @@
 """The Streamlit app run end to end with a fake model client and a fake article. No network or keys."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
@@ -12,6 +13,7 @@ from helpers import FakeClient, deal_json, make_article
 
 APP = str(Path(__file__).resolve().parent.parent / "app.py")
 DEEPSEEK = "DeepSeek V4.1 Flash"
+TODAY = datetime.now(timezone.utc).date().isoformat()  # the app measures its window from the real clock
 
 
 @pytest.fixture
@@ -42,7 +44,7 @@ def cards(at):
 
 
 def test_a_successful_run_shows_the_deal_card(fake_run):
-    payload = deal_json("Ion", "Lambda", "ion completes lambda acquisition", "2026-09-18")
+    payload = deal_json("Ion", "Lambda", "ion completes lambda acquisition", TODAY)
     at = fake_run(FakeClient({"ion-1": payload}))
     assert not at.exception
     assert len(cards(at)) == 1
@@ -71,7 +73,7 @@ def test_a_key_from_the_env_file_prefills_and_survives_switching_models(fake_run
 
 def test_deepseek_run_uses_its_own_key_and_endpoint(fake_run, monkeypatch):
     created = []
-    payload = deal_json("Ion", "Lambda", "ion completes lambda acquisition", "2026-09-18")
+    payload = deal_json("Ion", "Lambda", "ion completes lambda acquisition", TODAY)
 
     client = FakeClient({"ion-1": payload})
 
@@ -87,3 +89,13 @@ def test_deepseek_run_uses_its_own_key_and_endpoint(fake_run, monkeypatch):
     assert created[-1]["base_url"] == "https://api.deepseek.com/anthropic"
     assert client.last_extras == {"thinking": {"type": "disabled"}}
     assert len(cards(at)) == 1
+
+
+def test_a_deal_with_no_link_to_the_selected_geography_is_left_out_and_counted(fake_run):
+    payload = deal_json("BP", "Devon", "bp weighs devon assets", TODAY,
+                        geographies=["United States"])
+    at = fake_run(FakeClient({"ion-1": payload}))
+    assert not at.exception
+    assert cards(at) == []
+    assert any("1 item(s) left out because they have no link to the selected geographies" in c.value
+               for c in at.caption)

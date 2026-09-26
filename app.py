@@ -1,5 +1,6 @@
 import html
 import os
+from collections import Counter
 from datetime import date
 from itertools import zip_longest
 from pathlib import Path
@@ -11,8 +12,8 @@ from dotenv import dotenv_values
 from ma_deal_finder import scrapers
 from ma_deal_finder.docx_export import build_docx
 from ma_deal_finder.providers import PROVIDERS, make_client
-from ma_deal_finder.extract import (SECTORS, Usage, extract_deal, group_deals,
-                     is_candidate, merge_duplicates, merge_with_claude, source_links)
+from ma_deal_finder.extract import (OUTSIDE_GEOGRAPHIES, SECTORS, STALE, Usage, extract_deal,
+                     group_deals, is_candidate, merge_duplicates, merge_with_claude, source_links)
 
 ALL_SECTORS = "All sectors"
 ONLY_MA, EXTENSIVE = "Only M&As", "Extensive"
@@ -125,47 +126,44 @@ def pick_candidates(by_source, cfg):
     return interleaved[:cfg["max_calls"]], len(interleaved)
 
 
-def analyse(client, candidates, cfg, wire_names, progress):
-    usage, deals, headers, failed, stale = Usage(provider=cfg["provider"]), [], set(), [], 0
+def analyse(client, candidates, cfg, progress):
+    usage, deals, headers, failed, skipped = Usage(provider=cfg["provider"]), [], set(), [], Counter()
     for i, article in enumerate(candidates, 1):
         progress.progress(i / len(candidates), text=f"Reading article {i} of {len(candidates)} ({article.source})")
         try:
-            deal, is_old = extract_deal(client, article, cfg["extensive"], headers, usage,
-                                        cfg["window_start"])
+            deal, skip_reason = extract_deal(client, article, cfg["extensive"], headers, usage,
+                                             cfg["window_start"], cfg["geographies"])
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
             raise
         except anthropic.APIError as exc:
             failed.append(f"{type(exc).__name__}: {exc}")
             continue
-        stale += is_old
+        skipped[skip_reason] += 1
         if not deal:
             continue
         if not cfg["all_sectors"] and deal["sector"] not in cfg["sectors"]:
-            continue
-        if article.source in wire_names and deal["region"] not in cfg["geographies"]:
             continue
         deals.append(deal)
         headers.add(deal["industry_header"])
     progress.progress(1.0, text="Checking for duplicate deals")
     deals = merge_with_claude(client, merge_duplicates(deals), usage)
-    return deals, usage, failed, stale
+    return deals, usage, failed, skipped
 
 
 def run(cfg, sources):
     provider = cfg["provider"]
     client = make_client(provider, st.session_state[provider.key_state].strip())
-    wire_names = {s.name for s in sources if s.kind == "rss"}
     with st.status("Generating digest", expanded=True) as status:
         by_source, notes = gather(sources, cfg, status)
         candidates, total = pick_candidates(by_source, cfg)
         status.write(f"{total} candidate article(s) after the keyword filter; "
                      f"sending {len(candidates)} to {provider.label}")
         if not candidates:
-            deals, usage, failed, stale = [], Usage(provider=provider), [], 0
+            deals, usage, failed, skipped = [], Usage(provider=provider), [], Counter()
         else:
             progress = st.progress(0.0)
             try:
-                deals, usage, failed, stale = analyse(client, candidates, cfg, wire_names, progress)
+                deals, usage, failed, skipped = analyse(client, candidates, cfg, progress)
             except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
                 status.update(label="API key rejected", state="error")
                 st.error(f"{provider.company} rejected the API key. Check it in the sidebar and try again.")
@@ -173,7 +171,8 @@ def run(cfg, sources):
             progress.empty()
         status.update(label="Digest ready", state="complete", expanded=False)
     st.session_state["result"] = {
-        "deals": deals, "usage": usage, "failed": failed, "stale": stale, "notes": notes,
+        "deals": deals, "usage": usage, "failed": failed, "notes": notes,
+        "stale": skipped[STALE], "outside": skipped[OUTSIDE_GEOGRAPHIES],
         "capped": total - len(candidates), "docx": build_docx(deals),
     }
 
@@ -263,6 +262,9 @@ if result:
     if result["stale"]:
         st.caption(f"{result['stale']} older deal(s) left out because they were announced or "
                    "completed before the look-back window.")
+    if result["outside"]:
+        st.caption(f"{result['outside']} item(s) left out because they have no link to the selected "
+                   "geographies.")
     if result["failed"]:
         first_error = result["failed"][0][:200].replace("`", "'")
         st.warning(f"{len(result['failed'])} article(s) could not be processed because of API errors. "

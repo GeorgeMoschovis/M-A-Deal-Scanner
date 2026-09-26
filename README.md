@@ -54,8 +54,9 @@ Per-site scrapers read a listing page, keep links from the look-back window (def
 
 1. A keyword filter (accent-insensitive Greek stems plus English terms) drops unrelated articles before any API call.
 2. The selected model, Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) or DeepSeek V4.1 Flash (`deepseek-flash`), judges relevance (below, "Claude" means whichever you chose). "Only M&As" accepts acquisitions, mergers, stake purchases, tender offers and squeeze-outs; "Extensive" adds IPOs, capital raises, rumours and strategic reviews.
-3. Claude also labels sector and region for the filters, and returns the date of the deal's latest milestone. Deals whose latest milestone predates the look-back window are left out; unclear dates are kept.
-4. Duplicates across articles merge into one entry listing every source: matching names directly, other pairs via a short Claude check. If unsure, both stay.
+3. Claude also labels sector for the filter, and returns the date of the deal's latest milestone. Deals whose latest milestone predates the look-back window are left out; unclear dates are kept.
+4. Claude lists every geography a deal is linked to: where the buyer, target, seller, issuer, a directly involved parent or subsidiary, a co-investor or lender is based, or where the business or assets changing hands are. Deals with no link to any selected geography are left out, whichever site reported them; even a slight link keeps a deal. If the geographies are unclear, the deal is kept.
+5. Duplicates across articles merge into one entry listing every source: matching names directly, other pairs via a short Claude check. If unsure, both stay.
 
 ### Formatting and Word export
 

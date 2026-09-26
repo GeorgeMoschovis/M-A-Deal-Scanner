@@ -19,7 +19,7 @@ def make_article(key, source="Capital.gr"):
 def deal_json(buyer_name, target_name, headline, event_date, **overrides):
     """A relevant deal as Claude would return it, before house-style polishing."""
     data = {
-        "relevant": True, "item_type": "deal", "sector": "Consumer/Retail", "region": "Greece",
+        "relevant": True, "item_type": "deal", "sector": "Consumer/Retail", "geographies": ["Greece"],
         "industry_header": "FOOD & BEVERAGE", "buyer_name": buyer_name, "target_name": target_name,
         "headline": headline, "description": f"{buyer_name} did something with {target_name}. Two. Three.",
         "deal_financials": [], "deal_footnotes": [], "target": None, "buyer": None,
